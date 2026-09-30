@@ -1,0 +1,9 @@
+build/
+dist/
+release/
+*.spec
+*.zip
+*.exe
+__pycache__/
+*.pyc
+_selftest.txt
