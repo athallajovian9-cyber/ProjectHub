@@ -26,9 +26,7 @@ Project Hub.exe "C:\Users\RDC\Desktop" "D:\Projects"
 
 By default, two folders:
 
-```
-%USERPROFILE%\Desktop              folders you have built
-%LOCALAPPDATA%\hermesin         standalone executables
+```             folders you have built as standalone executables
 ```
 
 The second one matters. Some things are built as a single `.exe` with no folder around
