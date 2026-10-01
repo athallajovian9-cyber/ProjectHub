@@ -38,8 +38,14 @@ GOOD = "#22c98a"
 BAD = "#ff5f56"
 GOLD = "#ffcc55"
 
-# where to look. Overridable with an argument so the hub is not tied to one machine.
-DEFAULT_ROOTS = [Path.home() / "Desktop"]
+# Where to look. Overridable with arguments so the hub is not tied to one machine.
+#
+# The tooling folder matters: some things are built as a single .exe with no folder
+# around them, and if the only root is the Desktop those are invisible.
+DEFAULT_ROOTS = [
+    Path.home() / "Desktop",
+    Path(os.environ.get("LOCALAPPDATA", Path.home())) / "hermes" / "bin",
+]
 
 
 class Hub(tk.Tk):
@@ -48,6 +54,10 @@ class Hub(tk.Tk):
         self.roots = roots
         self.projects: list[H.Project] = []
         self.shown: list[H.Project] = []
+        # tree row id -> project. Rows used to be keyed by folder path, but standalone
+        # executables all live in the same folder, so the second one collided with the
+        # first and the window failed to open at all.
+        self.rowmap: dict[str, H.Project] = {}
         self.sort_col = "modified"
         self.sort_desc = True
 
@@ -130,6 +140,7 @@ class Hub(tk.Tk):
         self.tree.bind("<Return>", lambda e: self.launch_selected())
         self.tree.tag_configure("dirty", foreground=GOLD)
         self.tree.tag_configure("noentry", foreground=DIM)
+        self.tree.tag_configure("loose", foreground=ACC)
 
         act = ttk.Frame(self, padding=(14, 8, 14, 4))
         act.pack(fill="x")
@@ -200,7 +211,8 @@ class Hub(tk.Tk):
 
     def populate(self):
         self.tree.delete(*self.tree.get_children())
-        for p in self.shown:
+        self.rowmap.clear()
+        for i, p in enumerate(self.shown):
             entry = f"{p.entry_kind}: {p.entry.name}" if p.entry else "—"
             git = ""
             if p.git.is_repo:
@@ -210,12 +222,18 @@ class Hub(tk.Tk):
                 if p.git.github_slug:
                     git += "  ↗"
             t = len(p.tests)
+            if p.loose:
+                entry = f"tool: {p.entry.name}"
             tags = []
+            if p.loose:
+                tags.append("loose")
             if not p.has_entry:
                 tags.append("noentry")
             elif p.git.is_repo and p.git.dirty:
                 tags.append("dirty")
-            self.tree.insert("", "end", iid=str(p.path), tags=tuple(tags),
+            iid = f"r{i}"
+            self.rowmap[iid] = p
+            self.tree.insert("", "end", iid=iid, tags=tuple(tags),
                              values=(p.name, entry, t if t else "—", git or "—",
                                      H.human_size(p.size_bytes),
                                      time.strftime("%b %d %H:%M", time.localtime(p.mtime))))
@@ -225,15 +243,15 @@ class Hub(tk.Tk):
         sel = self.tree.selection()
         if not sel:
             return None
-        path = Path(sel[0])
-        return next((p for p in self.projects if p.path == path), None)
+        return self.rowmap.get(sel[0])
 
     def show_detail(self):
         p = self.selected()
         if not p:
             return
+        where = str(p.entry) if p.loose and p.entry else str(p.path)
         lines = [
-            str(p.path),
+            where,
             f"{p.status_line}",
             f"{p.file_count} files, {H.human_size(p.size_bytes)}"
             + (f"   ·   {p.git.commits} commits" if p.git.commits else ""),
@@ -411,8 +429,9 @@ def selftest(roots, out_path=None):
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    roots = [Path(a) for a in args] or DEFAULT_ROOTS
+    roots = [Path(a) for a in args] if args else list(DEFAULT_ROOTS)
     roots = [r for r in roots if r.is_dir()]
+    roots = list(dict.fromkeys(roots))     # the same folder twice would double every row
     if not roots:
         print("  no folders to scan")
         return 1

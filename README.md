@@ -22,6 +22,26 @@ it somewhere other than the Desktop:
 Project Hub.exe "C:\Users\RDC\Desktop" "D:\Projects"
 ```
 
+## Where it looks
+
+By default, two folders:
+
+```
+%USERPROFILE%\Desktop              folders you have built
+%LOCALAPPDATA%\hermesin         standalone executables
+```
+
+The second one matters. Some things are built as a single `.exe` with no folder around
+them, so a scanner that only looks at *directories* misses them completely - which is
+exactly what happened: fourteen built tools were sitting in a tooling folder and the
+hub could not see any of them.
+
+Pass your own folders instead, and it scans those:
+
+```
+Project Hub.exe "D:\Projects" "E:\Builds"
+```
+
 ## What it shows
 
 ```
@@ -40,6 +60,11 @@ For every folder it works out:
   link when there is one.
 - **Space actually used**, skipping `node_modules`, `target/`, `dist/` and the rest of
   the build output. A 2 MB project with a 268 MB Rust `target/` reports 2 MB.
+
+Standalone executables sitting directly in a scan root are listed individually and
+marked in blue, so a folder of tools is as browsable as a folder of projects. Installers
+and development shims (`uv`, `browser`, `browser-use` and their aliases) are skipped -
+they are not programs of their own.
 
 ## What you can do with it
 
@@ -60,8 +85,9 @@ from the runners' own output rather than a guess.
 ## Verifying it
 
 ```
-python3 test_hub_core.py     # 51 checks: discovery, entry selection, test finding,
-                             #            git parsing, sizing, output parsing
+python3 test_hub_core.py     # 65 checks: discovery, entry selection, standalone
+                             #            executables, test finding, git parsing,
+                             #            sizing, output parsing
 python3 hub.py --selftest    # builds the whole UI, exercises it, tears it down
 ```
 
@@ -88,6 +114,11 @@ searched for separately.
 
 **Sorting a size column smallest-first.** Clicking "Size" now gives the biggest first,
 because that is the only reason to sort by size.
+
+**Every standalone executable in a folder collided with the first one.** Rows were keyed
+by folder path, so the second loose `.exe` in the same folder hit `Item ... already
+exists` and the window failed to open at all. Rows are now keyed by their own id and
+mapped back to the project.
 
 ## Files
 

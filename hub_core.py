@@ -46,6 +46,10 @@ EXE_DENY = re.compile(
     r"^python[0-9.]*\.exe$|^AutoHotkey.*\.exe$",
     re.I,
 )
+# development shims that are aliases of the same launcher, not programs of their own
+LOOSE_DENY = re.compile(
+    r"^(uv|uvx|uvw|browser|browseruse|browser-use|browser-use-tui|bu)\.exe$", re.I)
+
 # a folder holding one of these is a game project, not a built app
 PROJECT_MARKERS = {
     "project.godot": "godot",
@@ -83,6 +87,8 @@ class Project:
     size_bytes: int = 0
     file_count: int = 0
     note: str = ""                # anything worth saying, e.g. why it has no entry
+    loose: bool = False           # a standalone executable seen in a scan root
+    origin: str = ""              # which root it was found under
 
     @property
     def has_entry(self) -> bool:
@@ -276,8 +282,56 @@ def looks_like_project(path: Path) -> bool:
     return False
 
 
-def scan(roots: list[Path], with_git: bool = True) -> list[Project]:
-    """Find every project under the given roots, newest first."""
+def loose_tools(root: Path, origin: str) -> list[Project]:
+    """Executables sitting directly in a scan root, as projects of their own.
+
+    Some things are built as a single .exe with no folder around them, so a scanner
+    that only looks at directories misses them entirely. Anything excluded as an
+    installer or a development shim is skipped here too.
+    """
+    out: list[Project] = []
+    if not root.is_dir():
+        return out
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:
+        return out
+    for f in entries:
+        if not f.is_file() or f.suffix.lower() != ".exe":
+            continue
+        if EXE_DENY.search(f.name) or LOOSE_DENY.match(f.name):
+            continue
+        tests: list[Path] = []
+        try:
+            st = f.stat()
+            size, mtime = st.st_size, st.st_mtime
+        except OSError:
+            size, mtime = 0, 0.0
+        out.append(Project(
+            name=f.stem,
+            path=root,
+            entry_kind="exe",
+            entry=f,
+            tests=tests,
+            git=GitState(),
+            mtime=mtime,
+            size_bytes=size,
+            file_count=1,
+            note="standalone executable",
+            loose=True,
+            origin=origin,
+        ))
+    return out
+
+
+def scan(roots: list[Path], with_git: bool = True,
+         include_loose: bool = True) -> list[Project]:
+    """Find every project under the given roots, newest first.
+
+    Looks at the folders inside each root AND at any executable sitting directly in
+    the root. Without the second part, everything built as a single .exe with no
+    folder of its own is invisible.
+    """
     out: list[Project] = []
     seen: set[str] = set()
 
@@ -314,7 +368,11 @@ def scan(roots: list[Path], with_git: bool = True) -> list[Project]:
                 size_bytes=size,
                 file_count=count,
                 note=note,
+                origin=str(root),
             ))
+
+        if include_loose:
+            out.extend(loose_tools(root, str(root)))
 
     out.sort(key=lambda p: p.mtime, reverse=True)
     return out

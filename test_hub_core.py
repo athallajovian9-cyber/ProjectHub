@@ -224,6 +224,45 @@ ordered = H.scan([tmp], with_git=False)
 mtimes = [p.mtime for p in ordered]
 check("results are newest first", mtimes == sorted(mtimes, reverse=True))
 
+# ------------------------------------------------- loose executables in a root
+rule("standalone executables with no folder around them")
+loose_root = tmp / "toolbin"
+touch(loose_root / "MyTool.exe")
+touch(loose_root / "Another_Tool.exe")
+touch(loose_root / "uv.exe")                  # a dev shim: not a program of its own
+touch(loose_root / "browser.exe")             # same
+touch(loose_root / "setup_thing.exe")         # an installer: not a program
+touch(loose_root / "notes.txt")               # not an executable at all
+
+loose = H.scan([loose_root])
+byname = {p.name: p for p in loose}
+check("finds a standalone executable", "MyTool" in byname, str(sorted(byname)))
+check("finds them all", len([p for p in loose if p.loose]) == 2, str(len([p for p in loose if p.loose])))
+check("a standalone exe is launchable",
+      byname["MyTool"].entry_kind == "exe" and byname["MyTool"].entry.name == "MyTool.exe")
+check("it is flagged as standalone, not a folder", byname["MyTool"].loose is True)
+check("it says so", "standalone" in byname["MyTool"].note, byname["MyTool"].note)
+check("dev shims are skipped", "uv" not in byname and "browser" not in byname)
+check("installers are skipped", "setup_thing" not in byname)
+check("non-executables are skipped", "notes" not in byname)
+check("a standalone exe can be launched", bool(H.launch_command(byname["MyTool"])))
+
+check("loose scanning can be turned off",
+      len([p for p in H.scan([loose_root], include_loose=False) if p.loose]) == 0)
+
+# a root holding both folders and executables should yield both
+mixed = tmp / "mixedroot"
+touch(mixed / "RealApp" / "RealApp.exe")
+touch(mixed / "Loose.exe")
+both = {p.name: p for p in H.scan([mixed])}
+check("a root with both gives folders AND executables",
+      "RealApp" in both and "Loose" in both, str(sorted(both)))
+check("the folder entry is not marked loose", both["RealApp"].loose is False)
+check("the executable entry is", both["Loose"].loose is True)
+
+check("origin records which root it came from",
+      both["Loose"].origin.endswith("mixedroot"), both["Loose"].origin)
+
 shutil.rmtree(tmp, ignore_errors=True)
 
 print("")
